@@ -12,6 +12,7 @@
 
 /// grid snapping options
 enum {
+    SVSnapOptionUndecided,
     SVSnapOptionNearest,
     SVSnapOptionLeft,
     SVSnapOptionRight
@@ -111,6 +112,9 @@ enum {
 /// enable if you show another object in fullscreen, but stacked view still thinks it's displayed
 /// reduces animations to a minimum to get smoother reactions on frontmost view.
 @property(nonatomic, assign, getter=isReducingAnimations) BOOL reduceAnimations;
+
+/// Property to enable always snapping to nearest
+@property(nonatomic, assign) BOOL alwaysSnapToNearest;
 
 /// Property to disable bounces
 @property(nonatomic, assign) BOOL enableBounces;

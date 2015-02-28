@@ -111,6 +111,7 @@ typedef void(^PSSVSimpleBlock)(void);
     
     [self configureGestureRecognizer];
     
+    _alwaysSnapToNearest = NO;
     enableBounces_ = YES;
     enableShadows_ = YES;
     enableDraggingPastInsets_ = YES;
@@ -250,8 +251,15 @@ typedef void(^PSSVSimpleBlock)(void);
 
 - (CGRect)viewRect {
     // self.view.frame not used, it's wrong in viewWillAppear
-    CGRect viewRect = [[UIScreen mainScreen] applicationFrame];
-    return viewRect;
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    CGRect portraitScreenBounds = screenBounds;
+    
+    if ((NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_7_1) && (PSIsLandscape())) {
+        portraitScreenBounds.size.width = screenBounds.size.height;
+        portraitScreenBounds.size.height = screenBounds.size.width;
+    }
+    
+    return portraitScreenBounds;
 }
 
 // return screen width
@@ -363,7 +371,7 @@ enum {
 }typedef PSSVRoundOption;
 
 - (BOOL)isFloatIndexBetween:(CGFloat)floatIndex {
-    float intIndex, restIndex;
+    float intIndex, restIndex;//can't use CGFloat on 64-bit architecture (on 64-bit it's actually a double, not float)
     restIndex = modff(floatIndex, &intIndex);
     BOOL isBetween = fabsf(restIndex - 0.5f) < EPSILON;
     return isBetween;
@@ -380,7 +388,7 @@ enum {
             isValid = contentWidth > [self screenWidth] - self.largeLeftInset;
         }else {
             NSUInteger stackCount = [self.viewControllers count];
-            float intIndex, restIndex;
+            float intIndex, restIndex;//can't use CGFloat on 64-bit architecture (on 64-bit it's actually a double, not float)
             restIndex = modff(floatIndex, &intIndex); // split e.g. 1.5 in 1.0 and 0.5
             isValid = stackCount > intIndex && contentWidth > ([self screenWidth] - self.leftInset);
             if (isValid && fabsf(restIndex - 0.5f) < EPSILON) {  // comparing floats -> if so, we have a .5 here
@@ -399,7 +407,7 @@ enum {
 
 - (CGFloat)nearestValidFloatIndex:(CGFloat)floatIndex round:(PSSVRoundOption)roundOption {
     CGFloat roundedFloat;
-    float intIndex, restIndex;
+    float intIndex, restIndex;//can't use CGFloat on 64-bit architecture (on 64-bit it's actually a double, not float)
     restIndex = modff(floatIndex, &intIndex);
     
     if (restIndex < 0.5f) {
@@ -869,10 +877,11 @@ enum {
         }
         
         // special case for menu
-        if (floatIndex == 0.f) {
-            CGFloat menuCollapsedRatio = (self.largeLeftInset - self.firstViewController.containerView.left)/(self.largeLeftInset - self.leftInset);
-            menuCollapsedRatio = MAX(0.0f, MIN(0.5f, menuCollapsedRatio/2));
-            floatIndex += menuCollapsedRatio;
+        if (floatIndex < 0.5f) {
+	        floatIndex = 0.0f;
+	        CGFloat menuCollapsedRatio = (self.largeLeftInset - self.firstViewController.containerView.left)/(self.largeLeftInset - self.leftInset);
+            floatIndex += menuCollapsedRatio/2;
+	        floatIndex = MAX(0.0f, MIN(0.5f, floatIndex));
         }
         
         floatIndex_ = floatIndex;
@@ -912,16 +921,16 @@ enum {
     
     // set up designated drag destination
     if (state == UIGestureRecognizerStateBegan) {
-        if (offset > 0) {
-            lastDragOption_ = SVSnapOptionRight;
-        }else {
-            lastDragOption_ = SVSnapOptionLeft;
-        }
+	    lastDragOption_ = [self snapOptionFromOffset:offset];
     }else {
-        // if there's a continuous drag in one direction, keep designation - else use nearest to snap.
-        if ((lastDragOption_ == SVSnapOptionLeft && offset > 0) || (lastDragOption_ == SVSnapOptionRight && offset < 0)) {
-            lastDragOption_ = SVSnapOptionNearest;
-        }
+	    if (lastDragOption_ == SVSnapOptionUndecided) {
+		    lastDragOption_ = [self snapOptionFromOffset:offset];
+	    }
+
+	    // if there's a continuous drag in one direction, keep designation - else use nearest to snap.
+	    if ((lastDragOption_ == SVSnapOptionLeft && offset > 0) || (lastDragOption_ == SVSnapOptionRight && offset < 0)) {
+		    lastDragOption_ = SVSnapOptionNearest;
+	    }
     }
     
     // save last point to calculate new offset
@@ -932,7 +941,10 @@ enum {
     // perform snapping after gesture ended
     BOOL gestureEnded = state == UIGestureRecognizerStateEnded;
     if (gestureEnded) {
-        
+	    if (lastDragOption_ == SVSnapOptionUndecided) {
+		    lastDragOption_ = SVSnapOptionNearest;
+	    }
+
         if (lastDragOption_ == SVSnapOptionRight) {
             self.floatIndex = [self nearestValidFloatIndex:self.floatIndex round:PSSVRoundDown];
             if (_disablePartialFloat) {
@@ -946,6 +958,22 @@ enum {
         
         [self alignStackAnimated:YES];
     }
+}
+
+- (PSSVSnapOption)snapOptionFromOffset:(NSInteger)offset {
+	if (self.alwaysSnapToNearest) {
+		return PSSVRoundNearest;
+	}
+
+	if (offset > 0) {
+		return SVSnapOptionRight;
+	}
+	else if (offset < 0) {
+		return SVSnapOptionLeft;
+	}
+	else {
+		return SVSnapOptionUndecided;
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
